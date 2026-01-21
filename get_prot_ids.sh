@@ -1,5 +1,6 @@
 #!/bin/bash
 
+# List Fanzor GenBank files
 mapfile -t files < <(ls *.gb)
 for file in "${files[@]}"
 do
