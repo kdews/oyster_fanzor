@@ -1,19 +1,16 @@
 #!/bin/bash
 #SBATCH -J orthofinder
+#SBATCH -o %x_%j.log
 #SBATCH --mem=25gb
 #SBATCH --time=05:00:00
 #SBATCH --cpus-per-task=32
-#SBATCH -o %x.log
 
 # Script variables
-prot_dir="proteomes"
-# R_mod_file="modules_for_Rscript.txt"
-# r_script="${SLURM_JOB_NAME}.R"
+[[ -n "$SLURM_JOB_NAME" ]] || SLURM_JOB_NAME="orthofinder" # job nmw
 
 # Help message
 if [[ "$1" = "-h" ]] || [[ "$1" = "--help" ]]
 then
-  [[ -n "$SLURM_JOB_NAME" ]] || SLURM_JOB_NAME="orthofinder"
   echo "\
 Takes as input directory of protein FASTAs intended for OrthoFinder.
 
@@ -29,10 +26,6 @@ date_fmt="%-I:%M:%S %p (%a %d %b %Y)" # date format
 date +"$date_fmt"
 echo
 
-# # Prepend scripts_dir
-# R_mod_file="${scripts_dir}${R_mod_file}"
-# r_script="${scripts_dir}${r_script}"
-
 # Parallelization
 # Low-mem threads
 thr_t="$SLURM_CPUS_PER_TASK"
@@ -40,15 +33,25 @@ thr_t="$SLURM_CPUS_PER_TASK"
 thr_a="$(( SLURM_CPUS_PER_TASK / 8 ))"
 
 # Input
-# Species table
-species_tab="oyster_fanzor/species_table.tsv"
-if [[ -f "$species_tab" ]]
+# Proteome diretctory
+if [[ -n "$1" ]]
 then
-  echo "Using species table file: $species_tab"
-  mapfile -t prot_list < <(grep -v "#" "$species_tab" | awk -F '\t' '{print $3}')
-  echo "Found ${#prot_list[@]} protein FASTAs."
+  prot_dir="$1"
 else
-  echo "Error: species table file ($species_tab) not found."
+  prot_dir="proteomes"
+fi
+
+# -e  exit on error
+# -u  treat unset variables as errors
+# -o pipefail  catch errors in pipes
+set -euo pipefail
+
+# Check directory exists
+if [[ -d "$prot_dir" ]]
+then
+  echo "Using proteome diretctory: $prot_dir"
+else
+  echo "Error: proteome diretctory ($prot_dir) not found."
   exit 1
 fi
 
@@ -73,7 +76,7 @@ do
   then
     echo "Found previous successful run: ${log[i]}"
     res_dir="${log[i]%%"Log.txt"}"
-    echo "Skipping OrthoFinder step, using results in: $res_dir"
+    echo "Skipping OrthoFinder step, results in: $res_dir"
     break
   fi
 done
@@ -93,17 +96,5 @@ then
   echo "OrthoFinder results: $res_dir"
 fi
 
-# # Load R modules
-# module purge
-# IFS=" " read -r -a R_mods <<< "$(cat "$R_mod_file")"
-# module load "${R_mods[@]}"
-
-# # Run analysis of OrthoFinder results in R
-# cmd="Rscript $r_script $species_tab $prot_dir/ $res_dir Saccharina_latissima $scripts_dir"
-# echo "$cmd"
-# # $cmd
-
 # Print date and time
-date_fmt="%-I:%M:%S %p (%a %d %b %Y)" # date format
-date +"$date_fmt"
-echo
+echo "Finished at: $(date)"

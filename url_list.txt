@@ -1,0 +1,5 @@
+https://static-content.springer.com/esm/art%3A10.1038%2Fs41586-023-06356-2/MediaObjects/41586_2023_6356_MOESM6_ESM.txt
+https://static-content.springer.com/esm/art%3A10.1038%2Fs41586-023-06356-2/MediaObjects/41586_2023_6356_MOESM8_ESM.txt
+https://static-content.springer.com/esm/art%3A10.1038%2Fs41586-023-06356-2/MediaObjects/41586_2023_6356_MOESM9_ESM.txt
+https://static-content.springer.com/esm/art%3A10.1038%2Fs41586-023-06356-2/MediaObjects/41586_2023_6356_MOESM10_ESM.txt
+https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/6596/GCF_021730395.1-RS_2023_01/Annotation_comparison/GCF_021730395.1_MADL_Memer_1_compare_prev.txt.gz
