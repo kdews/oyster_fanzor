@@ -162,6 +162,7 @@ runMSA <- function(seqs) {
 }
 # Plot MSA alongside tree
 plotTreeMSA <- function(prots, aln, tree, aln_title, label_offset, msa_width) {
+  options(ignore.negative.edge = T) # ignore warnings about negative tree lengths
   # Extract metadata stored in prots (AAStringSet)
   meta <- data.frame(
     label = tree$tip.label, # must match tip labels in tree
@@ -185,12 +186,13 @@ plotTreeMSA <- function(prots, aln, tree, aln_title, label_offset, msa_width) {
   p_msatree <- msaplot(p, aln, offset = label_offset, width = msa_width) +
     labs(title = aln_title, subtitle = aln_sub) +
     theme(legend.position = "none")
+  options(ignore.negative.edge = F) # turn warnings back on for user
   return(p_msatree)
 }
-# Round to nearest 10
-roundUpNice <- function(x, nice=c(1,2,4,5,6,8,10)) {
+# Round to nearest 10 (https://stackoverflow.com/a/25495249)
+roundUp <- function(x) {
   if(length(x) != 1) stop("'x' must be of length 1")
-  10^floor(log10(x)) * nice[[which(x <= 10^floor(log10(x)) * nice)[[1]]]]
+  round(x + 5, digits = -1)
 }
 # Plot ggmsa sequence alignment with seqlogo and consensus bar graph
 plotMSA <- function(prots, aln, aln_title) {
@@ -202,7 +204,7 @@ plotMSA <- function(prots, aln, aln_title) {
   ) %>%
     pull(names, label)
   names(aln) <- meta[names(aln)]
-  field <- roundUpNice(round(sqrt(max(width(aln))*length(aln))*2, digits = 0))
+  field <- roundUp(round(sqrt(max(width(aln)) * length(aln)) * 2, 0))
   # Generate ggmsa object
   p_msa <- ggmsa(aln, char_width = 0.7, seq_name = T, by_conservation = T) +
     labs(title = aln_title) +
@@ -233,13 +235,12 @@ if (interactive()) {
   outdir <- line_args[4]
 }
 # Output
+if (!dir.exists(outdir)) outdir <- "./" # if outdir does not exist, set to "./"
 fz_ortho_tab_file <- "fanzor_ortho_table.tsv"
 plot_dir <- "msa_plots"
-if (dir.exists(outdir)) {
-  fz_ortho_tab_file <- paste0(outdir, fz_ortho_tab_file)
-  plot_dir <- paste0(outdir, plot_dir)
-}
-dir.create(plot_dir, showWarnings = F)
+fz_ortho_tab_file <- paste0(outdir, fz_ortho_tab_file)
+plot_dir <- paste0(outdir, plot_dir)
+dir.create(plot_dir, showWarnings = F) # create directory for plots, if needed
 
 # Import datasets
 # Import species table
@@ -256,10 +257,10 @@ prot_df <- sapply(
   simplify = F
 ) %>%
   bind_rows(.id = "Species") # collapse into data frame
-# Import downloaded files (in outdir, if exists)
+# Import downloaded files
 checkPath(url_list_file)
 extra_files <- basename(read_lines(url_list_file))
-if (dir.exists(outdir)) extra_files <- paste0(outdir, extra_files)
+extra_files <- paste0(outdir, extra_files) # find files in outdir
 # Import table of clam gene annotation updates between reference versions
 clam_spc <- "Mercenaria mercenaria"
 clam_annot_corr_file <- grep(
@@ -378,21 +379,24 @@ ortho_fz <- ortho_long %>%
 # Write table of protein orthologs
 write_tsv(x = ortho_fz, file = fz_ortho_tab_file)
 
-# Subset proteins for MSA
-prots_per_spc <- list()
-for (spc in species_tab$Species) {
-  prot_file <- species_tab %>%
-    filter(Species == spc) %>%
-    pull(Proteome)
-  filt_ids <- ortho_fz %>%
-    filter(Species == spc) %>%
-    pull(Protein_ID)
-  prots <- readAAStringSet(prot_file)
-  names(prots) <- word(names(prots), 1, 1)
-  prots <- prots[names(prots) %in% filt_ids]
-  names(prots) <- paste(formatSpc(spc), names(prots))
-  prots_per_spc[[spc]] <- prots
-}
+# # Subset proteins for MSA
+# prots_per_spc <- list()
+# for (spc in species_tab$Species) {
+#   prot_file <- species_tab %>%
+#     filter(Species == spc) %>%
+#     pull(Proteome)
+#   filt_ids <- ortho_fz %>%
+#     filter(Species == spc) %>%
+#     pull(Protein_ID)
+#   prots <- readAAStringSet(prot_file)
+#   names(prots) <- word(names(prots), 1, 1)
+#   prots <- prots[names(prots) %in% filt_ids]
+#   names(prots) <- paste(formatSpc(spc), names(prots))
+#   prots_per_spc[[spc]] <- prots
+# }
+
+# 
+ortho_fz
 
 # Group by orthogroup
 ortho_split <- split(ortho_fz, ortho_fz$Orthogroup)
@@ -401,12 +405,11 @@ idxs <- which(names(ortho_split) %in% c("OG0000950", "OG0007788", "OG0000145", "
 # idx <- which(names(ortho_split) == "OG0000145")
 # idx <- which(names(ortho_split) == "OG0001120")
 idx <- which(names(ortho_split) == "OG0000950")
-options(ignore.negative.edge = TRUE)
 graph_stats <- list()
-# for (og in names(ortho_split)[idx]) {
 # for (og in names(ortho_split)[1:4]) {
-# for (og in names(ortho_split)[idxs]) {
-for (og in names(ortho_split)) {
+# for (og in names(ortho_split)[idx]) {
+# for (og in names(ortho_split)) {
+for (og in names(ortho_split)[idxs]) {
   og_df <- ortho_split[[og]]
   og_prod <- og_df %>% distinct(Ortho_Product) %>% pull(Ortho_Product)
   prots <- og_df %>%
@@ -452,12 +455,12 @@ for (og in names(ortho_split)) {
   w_mt <- max(tree_in + label_in + msa_in, 10 + n_seqs * 0.15) # min set by n_seqs
   
   # Generate plots
-  p_msatree <- plotTreeMSA(prots, aln, tree, plot_title, label_offset, msa_width)
-  # p_msa <- plotMSA(prots, aln, plot_title)
+  # p_msatree <- plotTreeMSA(prots, aln, tree, plot_title, label_offset, msa_width)
+  p_msa <- plotMSA(prots, aln, plot_title)
   
   # Name plot files
-  msa_tree_plot <- paste0(plot_dir, "/", og, "_MSA_tree.png")
-  msa_plot <- paste0(plot_dir, "/", og, "_MSA.png")
+  msa_tree_plot_file <- paste0(plot_dir, "/", og, "_MSA_tree.png")
+  msa_plot_file <- paste0(plot_dir, "/", og, "_MSA.png")
   
   # Report parameters
   graph_stats[[og]] <- tibble(
@@ -476,9 +479,12 @@ for (og in names(ortho_split)) {
   
   # Save plots
   showtext_opts(dpi = 300)
-  # ggsave(msa_tree_plot, p_msatree, dpi = 300, height = h_mt, width = 15)
-  ggsave(msa_tree_plot, p_msatree, dpi = 300, height = h_mt, width = w_mt)
-  # ggsave(msa_plot, p_msa, dpi = 300, height = 8, width = 16)
+  # ggsave(msa_tree_plot_file, p_msatree, dpi = 300, height = h_mt, width = w_mt)
+  
+  h_m <- 8 * max(1, (n_seqs / 22)) # increase height by number of sequences
+  field <- roundUp(round(sqrt(max(width(aln)) * length(aln)) * 2, 0))
+  w_m <- 16 * max(1, 0.1 * (field / 140)) # increase width by field size
+  ggsave(msa_plot_file, p_msa, dpi = 300, height = h_m, width = w_m)
   showtext_opts(dpi = 100)
 }
 graph_stats <- graph_stats %>%
