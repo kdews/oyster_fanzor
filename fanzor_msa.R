@@ -205,8 +205,8 @@ plotMSA <- function(prots, aln, aln_title) {
   field <- roundUp(round(sqrt(max(width(aln)) * length(aln)) * 2, 0))
   # Generate ggmsa object
   p_msa <- ggmsa(aln, char_width = 0.7, seq_name = T, by_conservation = T) +
-    labs(title = aln_title) +
-    facet_msa(field = field)
+    labs(title = aln_title)
+    # facet_msa(field = field)
     # geom_seqlogo() +
     # geom_msaBar()
   return(p_msa)
@@ -377,44 +377,45 @@ ortho_fz <- ortho_long %>%
 # Write table of protein orthologs
 write_tsv(x = ortho_fz, file = fz_ortho_tab_file)
 
-# Mark 
-ortho_fz <- ortho_fz %>%
-  mutate(Cluster = clusterProds(stripAnnots(Product)), .by = Orthogroup) %>%
-  mutate(
-    Cluster_Product = lcpLabel(stripAnnots(Product)),
-    .by = c(Orthogroup, Cluster),
-    .after = Ortho_Product
-  )
-
-ortho_fz %>%
-  summarize(n_Cluster = length(unique(Cluster_Product)), .by = c(Orthogroup)) %>%
-  View()
-
-ortho_fz %>%
-  filter(Orthogroup == "OG0000126") %>%
-  View()
+# # Mark 
+# ortho_fz <- ortho_fz %>%
+#   mutate(Cluster = clusterProds(stripAnnots(Product)), .by = Orthogroup) %>%
+#   mutate(
+#     Cluster_Product = lcpLabel(stripAnnots(Product)),
+#     .by = c(Orthogroup, Cluster),
+#     .after = Ortho_Product
+#   )
+# 
+# ortho_fz %>%
+#   summarize(n_Cluster = length(unique(Cluster_Product)), .by = c(Orthogroup)) %>%
+#   View()
+# 
+# ortho_fz %>%
+#   filter(Orthogroup == "OG0000126") %>%
+#   View()
 
 
 # Align and cluster sequences in each orthogroup
 # Group by orthogroup
 ortho_split <- split(ortho_fz, ortho_fz$Orthogroup)
-# idx <- which(names(ortho_split) %in% c("OG0000950", "OG0007788", "OG0000145", "OG0001120"))
+idx <- which(names(ortho_split) %in%
+               c("OG0000950", "OG0007788", "OG0000145", "OG0001120"))
 # idx <- which(names(ortho_split) == "OG0007788")
 # idx <- which(names(ortho_split) == "OG0000145")
 # idx <- which(names(ortho_split) == "OG0001120")
 # idx <- which(names(ortho_split) == "OG0000950")
 idx <- which(names(ortho_split) == "OG0000126")
 graph_stats <- list()
-# for (og in names(ortho_split)) {
-for (og in names(ortho_split)[idx]) {
+for (og in names(ortho_split)) {
+# for (og in names(ortho_split)[idx]) {
   og_df <- ortho_split[[og]]
   og_prod <- og_df %>% distinct(Ortho_Product) %>% pull(Ortho_Product)
   prots <- og_df %>%
     select(seq, Protein_ID) %>%
     { AAStringSet(setNames(.$seq, .$Protein_ID)) }
-  # mcols(prots)$Species <- formatSpc(og_df$Species)
-  # mcols(prots)$Product <- og_df$Product
-  mcols(prots)$Product <- og_df$Cluster_Product
+  mcols(prots)$Species <- formatSpc(og_df$Species)
+  mcols(prots)$Product <- og_df$Product
+  # mcols(prots)$Product <- og_df$Cluster_Product
   res <- runMSA(prots)
   aln <- res[[1]]
   tree <- res[[2]]
@@ -440,11 +441,8 @@ for (og in names(ortho_split)[idx]) {
   bp_per_width <- 650 # alignment bp per msaplot width unit
   # Convert to plot units
   # Offset: distance between tree and MSA (scale for alignments < 500bp)
-  # label_offset <- max_chars / char_per_off
   label_offset <- (max_chars / char_per_off) * min(1, aln_length / 500)
-  # msa_width <- aln_length / bp_per_width 
   # Width: ratio of MSA to tree width
-  # msa_width <- max(aln_length / bp_per_width, 0.5) # min 0.5 units
   msa_width <- max(aln_length / bp_per_width, label_offset * 0.8) # offset ratio
   
   # Set ggsave width and height based on input dataset
@@ -454,19 +452,15 @@ for (og in names(ortho_split)[idx]) {
   # Plot width has additive components
   x_unit_to_in <- 0.3 # in per ggtree x-unit (tuned against known-good plot)
   tree_xmax <- max(ggtree(tree)$data$x, na.rm = T)
-  # tree_in <- tree_xmax * x_unit_to_in * 7
   tree_in <- max(tree_xmax * x_unit_to_in * 7, 1 + n_seqs * 0.02)
-  # tree_in <- max(tree_xmax * x_unit_to_in, 2) # min 2in
-  # label_in <- label_offset * x_unit_to_in # calculate via offset
   label_in <- max_chars * 0.085 # directly from characters
   ref_msa_in <- 10.3 / 2.71  # inches per msaplot width unit
   msa_in <- max(msa_width * ref_msa_in, 3)  # min 3in
-  # w_mt <- max(tree_in + label_in + msa_in, 8) # min 8in wide
   w_mt <- max(tree_in + label_in + msa_in, 10 + n_seqs * 0.15) # min set by n_seqs
   
   # Generate plots
   p_msatree <- plotTreeMSA(prots, aln, tree, plot_title, label_offset, msa_width)
-  print(p_msatree)
+  # print(p_msatree)
   # p_msa <- plotMSA(prots, aln, plot_title)
   # 
   # # Name plot files
@@ -489,14 +483,15 @@ for (og in names(ortho_split)[idx]) {
   # )
   # 
   # # Save plots
-  # showtext_opts(dpi = 300)
-  # # ggsave(msa_tree_plot_file, p_msatree, dpi = 300, height = h_mt, width = w_mt)
-  # 
+  showtext_opts(dpi = 300)
+  # Tree + MSA plot
+  ggsave(msa_tree_plot_file, p_msatree, dpi = 300, height = h_mt, width = w_mt)
+  
   # h_m <- 8 * max(1, (n_seqs / 22)) # increase height by number of sequences
   # field <- roundUp(round(sqrt(max(width(aln)) * length(aln)) * 2, 0))
   # w_m <- 16 * max(1, 0.1 * (field / 140)) # increase width by field size
   # ggsave(msa_plot_file, p_msa, dpi = 300, height = h_m, width = w_m)
-  # showtext_opts(dpi = 100)
+  showtext_opts(dpi = 100)
 }
 graph_stats <- graph_stats %>%
   bind_rows(.id = "Orthogroup")
