@@ -1,18 +1,23 @@
 #!/bin/bash
 #SBATCH -J fanzor_msa
 #SBATCH -o %x_%j.log
-#SBATCH --mem=25gb
+#SBATCH --mem=50gb
 #SBATCH --time=05:00:00
-#SBATCH --cpus-per-task=32
+#SBATCH --cpus-per-task=12
 
 # Script variables
 [[ -n "$SLURM_JOB_NAME" ]] || SLURM_JOB_NAME="fanzor_msa" # job name
 r_script="${SLURM_JOB_NAME}.R" # R script (named from job)
 scripts_dir="oyster_fanzor/" # scripts directory
-prot_dir="proteomes" # input dir of proteome FASTAS
+species_tab="species_table.tsv" # input species metadata table (default filename)
 url_list_file="url_list.txt" # input list of URLs
-species_tab="species_table.tsv" # input species metadata table
-[[ -d "$scripts_dir" ]] && rscript="${scripts_dir}${rscript}"
+prot_dir="proteomes" # input dir of proteome FASTAS
+if [[ -d "$scripts_dir" ]] # redirect if scripts dir exists
+then
+  r_script="${scripts_dir}${r_script}"
+  species_tab="${scripts_dir}${species_tab}"
+  url_list_file="${scripts_dir}${url_list_file}"
+fi
 
 # Help message
 if [[ "$1" = "-h" ]] || [[ "$1" = "--help" ]]
@@ -33,21 +38,9 @@ fi
 date
 echo
 
-# Parallelization
-# Low-mem threads
-thr_t="$SLURM_CPUS_PER_TASK"
-# High-mem threads
-thr_a="$(( SLURM_CPUS_PER_TASK / 8 ))"
-
 # Input
 # Species table
-if [[ -n "$1" ]]
-then
-  species_tab="$1"
-else
-  species_tab="species_table.tsv"
-  [[ -d "$scripts_dir" ]] && species_tab="${scripts_dir}${species_tab}"
-fi
+[[ -n "$1" ]] && species_tab="$1"
 
 # -e  exit on error
 # -u  treat unset variables as errors

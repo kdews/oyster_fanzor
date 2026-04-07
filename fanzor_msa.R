@@ -15,20 +15,24 @@ suppressPackageStartupMessages(
 )
 suppressPackageStartupMessages(library(ggmsa, quietly = T, warn.conflicts = F))
 library(ggtext)
+library(pwalign, quietly = T, warn.conflicts = F)
 if (require(showtext, quietly = T, warn.conflicts = F)) {
   showtext_auto()
-  if (interactive()) showtext_opts(dpi = 100) else showtext_opts(dpi = 300)
+  if (interactive()) {
+    my_dpi <- dev.size("px")[1]/dev.size("in")[1]
+    showtext_opts(dpi = my_dpi)
+  } else {
+    showtext_opts(dpi = 300)
+  }
 }
 
 # Functions
 # Checks existence of file or directory and errors if FALSE
 checkPath <- function(test_path) {
-  if (file.exists(test_path)) {
-    return(TRUE)
-  } else {
-    stop(paste0("Cannot follow path (", test_path, ")."))
-    return(FALSE)
-  }
+  sys_msg <- paste("Found file:", test_path)
+  er_msg <- paste0("Cannot follow path (", test_path, ").")
+  if (!file.exists(test_path)) stop(er_msg)
+  return(sys_msg)
 }
 # Format species Latin name
 formatSpc <- function(spc) {
@@ -149,14 +153,20 @@ runMSA <- function(seqs) {
   aln <- as(aln, "AAStringSet")
   
   # Generate tree object
-  # Convert alignment to phyDat
-  aln_phydat <- phyDat(as.matrix(aln), type = "AA")
-  # Distance matrix
-  dist <- dist.ml(aln_phydat)
-  # Neighbor-Joining tree
-  tree <- NJ(dist)
   
-  return(list(aln, tree))
+  # METHOD 1
+  aln_phydat <- phyDat(as.matrix(aln), type = "AA") # convert to AA seqs
+  dist <- dist.ml(aln_phydat) # compute distance matrix from AA seqs
+  tree1 <- NJ(dist) # convert distance matrix to Neighbor-Joining tree
+  # # Get clusters from distance matrix
+  # clust <- hclust(dist, method = "complete") %>%
+  #   cutree(h = 0.2)
+  
+  # METHOD 2 (Basic Protocol 5, doi.org/10.1002/cpbi.96)
+  d <- stringDist(aln, method = "hamming")/width(aln)[1]
+  tree2 <- bionj(d)
+  
+  return(list("msa" = aln, "tree1" = tree1, "tree2" = tree2))
 }
 # Plot MSA alongside tree
 plotTreeMSA <- function(prots, aln, tree, aln_title, label_offset, msa_width) {
@@ -168,21 +178,37 @@ plotTreeMSA <- function(prots, aln, tree, aln_title, label_offset, msa_width) {
     Product = mcols(prots)$Product
   ) %>%
     mutate(Product = gsub("'", "\\'", Product, fixed = T)) # escape quotes
-  aln_sub <- paste0(
-    "offset: ", label_offset, " (", max_chars, " char) ",
-    "width: ", msa_width, " (", aln_length, " bp)"
-  )
+  
+  # Resize tip lables & offset, as needed
+  max_chars <- max(nchar(paste(meta$Species, meta$Product))) # max char. width
+  n_seqs <- length(aln) # number of aligned sequences
   tip_size <- 3.88  # ggtree default
   # Only reduce for very large trees where text would overlap vertically
-  if (n_seqs > 40) tip_size <- max(2.5, 3.88 * (40 / n_seqs))
-  # Adjust label offset by tip size
-  label_offset <- (max_chars / char_per_off) * (tip_size / 3.88)
+  if (n_seqs > 50) tip_size <- max(2.5, 3.88 * (50 / n_seqs))
+  # Decrease label offset for decreased tip sizes
+  label_offset <- label_offset * (tip_size / 3.88)
+  
+  # Modify title
+  aln_title <- paste(
+    "Offset:", round(label_offset, 2),
+    "MSA:", round(msa_width, 2),
+    aln_title
+  )
+  
+  # Generate plots
   p <- ggtree(tree) %<+% meta +
-    geom_tiplab(aes(label = paste0(
-      "italic('", formatSpc(Species), "')", " ~'", Product, "'"
-    )), parse = T, align = T, size = tip_size)
+    geom_tiplab(
+      aes(
+        label = paste0(
+          "italic('", formatSpc(Species), "')", " ~'", Product, "'"
+        )
+      ),
+      parse = T,
+      size = tip_size,
+      align = T
+    )
   p_msatree <- msaplot(p, aln, offset = label_offset, width = msa_width) +
-    labs(title = aln_title, subtitle = aln_sub) +
+    labs(title = aln_title) +
     theme(legend.position = "none")
   options(ignore.negative.edge = F) # turn warnings back on for user
   return(p_msatree)
@@ -274,7 +300,7 @@ colnames(clam_annot_corr) <- gsub(" ", "_", colnames(clam_annot_corr))
 # Remaining files in list are Fanzor protein GenBank files from supplement of
 # Saito, M. et al. Nature, 620, 660–668, 2023. doi:10.1038/s41586-023-06356-2
 fz_gbs <- grep(clam_annot_corr_file, extra_files, invert = T, value = T)
-sapply(fz_gbs, checkPath)
+sapply(fz_gbs, checkPath, USE.NAMES = F)
 gb_lines <- sapply(fz_gbs, read_lines, skip = 1, n_max = 1) # read 2nd line only
 fz_gbs <- sapply(species_tab$Species, function(x) {
   y = names(grep(x, gb_lines, value = T))
@@ -377,81 +403,95 @@ ortho_fz <- ortho_long %>%
 # Write table of protein orthologs
 write_tsv(x = ortho_fz, file = fz_ortho_tab_file)
 
-# # Mark 
-# ortho_fz <- ortho_fz %>%
-#   mutate(Cluster = clusterProds(stripAnnots(Product)), .by = Orthogroup) %>%
-#   mutate(
-#     Cluster_Product = lcpLabel(stripAnnots(Product)),
-#     .by = c(Orthogroup, Cluster),
-#     .after = Ortho_Product
-#   )
-# 
-# ortho_fz %>%
-#   summarize(n_Cluster = length(unique(Cluster_Product)), .by = c(Orthogroup)) %>%
-#   View()
-# 
-# ortho_fz %>%
-#   filter(Orthogroup == "OG0000126") %>%
-#   View()
-
+# Mark language clustering products by cluster #
+ortho_fz <- ortho_fz %>%
+  mutate(Cluster = clusterProds(stripAnnots(Product)), .by = Orthogroup) %>%
+  mutate(
+    Cluster_Product = lcpLabel(stripAnnots(Product)),
+    .by = c(Orthogroup, Cluster),
+    .after = Ortho_Product
+  )
 
 # Align and cluster sequences in each orthogroup
-# Group by orthogroup
-ortho_split <- split(ortho_fz, ortho_fz$Orthogroup)
-idx <- which(names(ortho_split) %in%
-               c("OG0000950", "OG0007788", "OG0000145", "OG0001120"))
-# idx <- which(names(ortho_split) == "OG0007788")
-# idx <- which(names(ortho_split) == "OG0000145")
-# idx <- which(names(ortho_split) == "OG0001120")
-# idx <- which(names(ortho_split) == "OG0000950")
-idx <- which(names(ortho_split) == "OG0000126")
+ortho_split <- split(ortho_fz, ortho_fz$Orthogroup) # split by orthogroup
+# aln_length_split <- sapply(ortho_split, function(og_df) {
+#   og_df %>%
+#     pull(seq, Protein_ID) %>%
+#     AAStringSet() %>%
+#     msa(method = "ClustalOmega") %>%
+#     as("AAStringSet") %>%
+#     width() %>%
+#     unique()
+# })
+# graph_stats <- ortho_fz %>%
+#   mutate(
+#     max_char = max(nchar(paste(formatSpc(Species), Product))),
+#     n_seqs = n(),
+#     .by = Orthogroup
+#   ) %>%
+#   distinct(Orthogroup, n_seqs, max_char) %>%
+#   mutate(aln_length = aln_length_split[Orthogroup])
+
 graph_stats <- list()
+ortho_split <- ortho_split["OG0000145"] # DELETE
+ortho_split <- ortho_split["OG0012761"] # DELETE
 for (og in names(ortho_split)) {
-# for (og in names(ortho_split)[idx]) {
-  og_df <- ortho_split[[og]]
-  og_prod <- og_df %>% distinct(Ortho_Product) %>% pull(Ortho_Product)
-  prots <- og_df %>%
-    select(seq, Protein_ID) %>%
-    { AAStringSet(setNames(.$seq, .$Protein_ID)) }
-  mcols(prots)$Species <- formatSpc(og_df$Species)
-  mcols(prots)$Product <- og_df$Product
-  # mcols(prots)$Product <- og_df$Cluster_Product
-  res <- runMSA(prots)
-  aln <- res[[1]]
-  tree <- res[[2]]
-  plot_title <- paste(og, og_prod, sep = ": ")
+  print(paste("Plotting alignments of:", og))
+  og_df <- ortho_split[[og]] # subset orthogroup df
+  prots <- og_df %>% # convert df to AAStringSet object
+    pull(seq, Protein_ID) %>%
+    AAStringSet()
   
-  # Label protein clusters from alignment
-  og_df <- aln %>%
-    as("AAStringSet") %>%
-    as.matrix() %>%
-    phyDat(type = "AA") %>%
-    dist.ml() %>%
-    hclust(method = "complete") %>%
-    cutree(h = 0.2) %>%
-    tibble(Protein_ID = names(.), Tree_Cluster = .) %>%
-    left_join(og_df, ., by = join_by(Protein_ID))
-  mcols(prots)$Species <- og_df$Tree_Cluster
+  # Run protein MSA and generate tree from alignment
+  res <- runMSA(prots)
+  aln <- res[["msa"]]
+  # tree <- res[["tree"]]
+  tree <- res[["tree1"]]
+  # tree <- res[["tree2"]]
+  
+  # # Label protein clusters from alignment
+  # og_df <- aln %>%
+  #   as("AAStringSet") %>%
+  #   as.matrix() %>%
+  #   phyDat(type = "AA") %>%
+  #   dist.ml() %>%
+  #   hclust(method = "complete") %>%
+  #   cutree(h = 0.2) %>%
+  #   tibble(Protein_ID = names(.), Tree_Cluster = .) %>%
+  #   left_join(og_df, ., by = join_by(Protein_ID))
+  
+  # Add metadata to AAStringSet object
+  mcols(prots)$Species <- formatSpc(og_df$Species) # formatted species name
+  mcols(prots)$Product <- og_df$Product # protein product name
+  # mcols(prots)$Cluster_Product <- og_df$Cluster_Product # cluster # of ortho name
+  # mcols(prots)$Tree_Cluster <- og_df$Tree_Cluster # cluster # by alignment
   
   # Set plot parameters based on input dataset
+  og_prod <- og_df %>% # pull collapsed orthogroup product name
+    distinct(Ortho_Product) %>%
+    pull(Ortho_Product)
+  plot_title <- paste(og, og_prod, sep = ": ") # plot title
   # Maximum label character width
   max_chars <- max(nchar(paste(mcols(prots)$Species, mcols(prots)$Product)))
   aln_length <- unique(width(aln)) # MSA length in bp
-  char_per_off <- 20 # characters per ggtree x-unit
+  char_per_off <- 40 # characters per ggtree x-unit
   bp_per_width <- 650 # alignment bp per msaplot width unit
+  tree_xmax <- max(ggtree(tree)$data$x, na.rm = T) # maximum tree branch length
+  tree_x_per_off <- 1.25 # offset per tree x-axis unit
   # Convert to plot units
-  # Offset: distance between tree and MSA (scale for alignments < 500bp)
-  label_offset <- (max_chars / char_per_off) * min(1, aln_length / 500)
+  # Offset: distance between tree and MSA (scale down for alignments < 500bp)
+  # label_offset <- (max_chars / char_per_off) * min(1, aln_length / 500)
+  label_offset <- (tree_xmax / tree_x_per_off) + (max_chars / char_per_off)
   # Width: ratio of MSA to tree width
-  msa_width <- max(aln_length / bp_per_width, label_offset * 0.8) # offset ratio
+  # msa_width <- max(aln_length / bp_per_width, label_offset * 0.8) # offset ratio
+  msa_width <- aln_length / bp_per_width
   
   # Set ggsave width and height based on input dataset
-  # Plot height driven purely by number of sequences
+  # Plot height related to number of sequences
   n_seqs <- length(aln)
   h_mt <- n_seqs * 0.12 + 5 # 0.12in per seq + 5in margin
   # Plot width has additive components
   x_unit_to_in <- 0.3 # in per ggtree x-unit (tuned against known-good plot)
-  tree_xmax <- max(ggtree(tree)$data$x, na.rm = T)
   tree_in <- max(tree_xmax * x_unit_to_in * 7, 1 + n_seqs * 0.02)
   label_in <- max_chars * 0.085 # directly from characters
   ref_msa_in <- 10.3 / 2.71  # inches per msaplot width unit
@@ -460,13 +500,15 @@ for (og in names(ortho_split)) {
   
   # Generate plots
   p_msatree <- plotTreeMSA(prots, aln, tree, plot_title, label_offset, msa_width)
-  # print(p_msatree)
+  print(p_msatree)
   # p_msa <- plotMSA(prots, aln, plot_title)
-  # 
-  # # Name plot files
+
+  # Name plot files
   # msa_tree_plot_file <- paste0(plot_dir, "/", og, "_MSA_tree.png")
+  msa_tree_plot_file <- paste0(plot_dir, "/", og, "_MSA_tree_REDO.png")
+  # msa_tree_plot_file <- paste0(plot_dir, "/", og, "_MSA_tree_NEW.png")
   # msa_plot_file <- paste0(plot_dir, "/", og, "_MSA.png")
-  # 
+  
   # # Report parameters
   # graph_stats[[og]] <- tibble(
   #   n_char = max_chars,
@@ -481,36 +523,36 @@ for (og in names(ortho_split)) {
   #   w_mt = w_mt,
   #   h_mt = h_mt
   # )
-  # 
-  # # Save plots
-  showtext_opts(dpi = 300)
-  # Tree + MSA plot
-  ggsave(msa_tree_plot_file, p_msatree, dpi = 300, height = h_mt, width = w_mt)
-  
-  # h_m <- 8 * max(1, (n_seqs / 22)) # increase height by number of sequences
-  # field <- roundUp(round(sqrt(max(width(aln)) * length(aln)) * 2, 0))
-  # w_m <- 16 * max(1, 0.1 * (field / 140)) # increase width by field size
-  # ggsave(msa_plot_file, p_msa, dpi = 300, height = h_m, width = w_m)
-  showtext_opts(dpi = 100)
+# 
+#   # Save plots
+#   showtext_opts(dpi = 300)
+#   # Tree + MSA plot
+#   ggsave(msa_tree_plot_file, p_msatree, dpi = 300, height = h_mt, width = w_mt)
+#   
+#   # h_m <- 8 * max(1, (n_seqs / 22)) # increase height by number of sequences
+#   # field <- roundUp(round(sqrt(max(width(aln)) * length(aln)) * 2, 0))
+#   # w_m <- 16 * max(1, 0.1 * (field / 140)) # increase width by field size
+#   # ggsave(msa_plot_file, p_msa, dpi = 300, height = h_m, width = w_m)
+#   showtext_opts(dpi = my_dpi)
 }
 graph_stats <- graph_stats %>%
   bind_rows(.id = "Orthogroup")
-graph_stats %>% print(n = 100)
-# graph_stats %>% arrange(aln_length) %>% print(n=100)
-graph_stats %>% arrange(tree_xmax) %>% print(n=100)
-good <- c(
-  "OG0000110",
-  "OG0000311"
-)
-bad <-c(
-  "OG0000950",
-  "OG0006492"
-)
-graph_stats %>%
-  filter(Orthogroup %in% c(good, bad)) %>%
-  mutate(
-    Graph = case_when(Orthogroup %in% good ~ "good", Orthogroup %in% bad ~ "bad")
-  )
+
+library(ggrepel)
+p1 <- graph_stats %>%
+  filter(n_seqs < 10) %>%
+  ggplot() +
+  geom_label_repel(aes(label = Orthogroup, x = aln_length, y = n_seqs, color = n_char))
+  # geom_label_repel(aes(label = Orthogroup, x = msa_width, y = label_offset))
+  # scale_color_distiller(palette = "Reds", direction = 1)
+p2 <- graph_stats %>%
+  filter(n_seqs < 10) %>%
+  ggplot() +
+  # geom_label_repel(aes(label = Orthogroup, x = w_mt, y = h_mt))
+  geom_label_repel(aes(label = Orthogroup, x = w_mt, y = h_mt, color = n_char))
+  # scale_color_distiller(palette = "Reds", direction = 1)
+ggpubr::ggarrange(p1, p2, common.legend = T)
+
 
 # fungus_gff_file <- species_tab %>%
 #   filter(Species == "Spizellomyces punctatus") %>%
