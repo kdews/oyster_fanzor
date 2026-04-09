@@ -11,12 +11,14 @@ r_script="${SLURM_JOB_NAME}.R" # R script (named from job)
 scripts_dir="oyster_fanzor/" # scripts directory
 species_tab="species_table.tsv" # input species metadata table (default filename)
 url_list_file="url_list.txt" # input list of URLs
+canon_fz_file="canon_fz.tsv" # input table of canonical Fz protein IDs
 prot_dir="proteomes" # input dir of proteome FASTAS
 if [[ -d "$scripts_dir" ]] # redirect if scripts dir exists
 then
   r_script="${scripts_dir}${r_script}"
   species_tab="${scripts_dir}${species_tab}"
   url_list_file="${scripts_dir}${url_list_file}"
+  canon_fz_file="${scripts_dir}${canon_fz_file}"
 fi
 
 # Help message
@@ -66,7 +68,8 @@ Rscript --version || exit 1
 
 # Run MSA of Fanzor orthologs in R
 set -x
-Rscript "$r_script" "$species_tab" "$url_list_file" "$prot_dir" "$scripts_dir"
+Rscript "$r_script" "$species_tab" "$url_list_file" "$canon_fz_file" \
+  "$prot_dir" "$scripts_dir"
 set +x
 
 # Print date and time

@@ -178,11 +178,14 @@ plotTreeMSA <- function(prots, aln, tree, plot_title, spc_names) {
   # Resize tip label text, as needed
   n_seqs <- length(aln) # number of aligned sequences
   msa_height <- 0.8 # ggtree default
-  tip_size <- 11  # ggplot2 default
-  # Only reduce MSA height for alignments with very few sequences
+  lab_size <- 11  # ggplot2 default
+  tip_size <- 2
+  # Reduce MSA height for alignments with very few sequences
   if (n_seqs < 10) msa_height <- 0.5
-  # Only reduce for very large trees where text would overlap vertically
-  if (n_seqs > 50) tip_size <- 7
+  # Reduce font size for very large trees where text would overlap vertically
+  if (n_seqs > 50) lab_size <- 7
+  # Increase tip point size for small trees
+  if (n_seqs < 10) tip_size <- 4
   
   # Tree plot
   p <- ggtree(tree) %<+% meta +
@@ -191,8 +194,7 @@ plotTreeMSA <- function(prots, aln, tree, plot_title, spc_names) {
       as_ylab = T, # display tip labels as y-axis label
       align = T # align nodes to right side with dotted line
     ) +
-    geom_tippoint(aes(color = Species), size = 2, shape = 17) +
-    scale_color_manual(values = sp_cols) +
+    geom_tippoint(size = tip_size) +
     theme(legend.text = element_text(face = "italic")) # italicize species names
   # Get x-axis range
   pb <- ggplot_build(p)
@@ -204,8 +206,15 @@ plotTreeMSA <- function(prots, aln, tree, plot_title, spc_names) {
       as_ylab = T, # display tip labels as y-axis label
       align = T # align nodes to right side with dotted line
     ) +
-    geom_tippoint(aes(x = x + tip_offset, color = Species), size = 2, shape = 17) +
+    geom_tippoint(
+      aes(
+        x = x + tip_offset,
+        color = Species,
+        shape = Saito_Fanzor
+      ), size = tip_size
+    ) +
     scale_color_manual(values = sp_cols) +
+    scale_shape_manual(values = c(17, 8)) +
     theme(legend.text = element_text(face = "italic")) # italicize species names
   
   # Tree + MSA plot
@@ -213,14 +222,14 @@ plotTreeMSA <- function(prots, aln, tree, plot_title, spc_names) {
     labs(title = plot_title) +
     guides(
       fill = "none", # don't display MSA fill legend
-      # color = guide_legend(nrow = 2) # split color legend into 2 rows
+      shape = "none" # don't display tip point shape legend
     ) +
     coord_cartesian(clip = "off") +
     theme(
       legend.location = "plot", # legend relative to entire plot area
       legend.position = "top",
       plot.title = element_text(size = title_size),
-      axis.text.y.right = element_text(margin = margin(r = 10), size = tip_size),
+      axis.text.y.right = element_text(margin = margin(r = 10), size = lab_size),
       plot.margin = margin(l = 20)
     )
   return(p_msatree)
@@ -259,6 +268,8 @@ if (interactive()) {
   species_tab_file <- "oyster_fanzor/species_table.tsv"
   # URL list
   url_list_file <- "oyster_fanzor/url_list.txt"
+  # Table of canonical Fz protein IDs from Saito et al. (2023)
+  canon_fz_file <- "oyster_fanzor/canon_fz.tsv"
   # Directory containing input protein FASTAs for OrthoFinder
   prot_dir <- "proteomes"
   # Output directory
@@ -267,9 +278,11 @@ if (interactive()) {
   line_args <- commandArgs(trailingOnly = T)
   species_tab_file <- line_args[1]
   url_list_file <- line_args[2]
-  prot_dir <- line_args[3]
-  outdir <- line_args[4]
+  canon_fz_file <- line_args[3]
+  prot_dir <- line_args[4]
+  outdir <- line_args[5]
 }
+
 # Output
 if (!dir.exists(outdir)) outdir <- "./" # if outdir does not exist, set to "./"
 fz_ortho_tab_file <- "fanzor_ortho_table.tsv"
@@ -320,6 +333,9 @@ fz_gbs <- sapply(species_tab$Species, function(x) {
 })
 species_tab <- species_tab %>%
   mutate(Fz_GenBank = unname(fz_gbs[Species])) # add column
+# Import canonical Fanzor protein IDs per species from Saito et al. (2023)
+checkPath(canon_fz_file)
+canon_fz <- read_tsv(canon_fz_file, show_col_types = F)
 # Import Fanzor protein IDs from GenBank files
 fz_prot_list <- sapply(
   pull(species_tab, Fz_GenBank, Species),
@@ -376,27 +392,30 @@ ortho_long <- ortho_tab %>%
   mutate(Species = gsub("_", " ", Species))
 # Annotate Fanzor orthologs
 ortho_long <- ortho_long %>%
-  # Mark specific proteins from Saito et al.
+  # Mark specific proteins from Saito et al. (2023)
+  # Canonical Fanzor proteins
+  left_join(., canon_fz) %>%
+  # All Fanzor orthologs
   mutate(Fanzor = case_when(
     paste0(Species, Protein_ID) %in%
       paste0(fz_prot_df$Species, fz_prot_df$Protein_ID) ~
       paste(Species, Protein_ID, sep = ";")
-  )) %>%
+  )) %>% 
   # Per orthogroup, Fanzor_Ortho = "Species1;Protein_ID1, Species2;Protein_ID2",
   # where each listed protein is Fanzor ID'd by Saito et al. found in Orthogroup
   group_by(Orthogroup) %>%
   mutate(Fanzor_Ortho = paste(na.omit(Fanzor), collapse = ", ")) %>%
-  ungroup()
+  ungroup() %>%
+  mutate(
+    Saito_Fanzor = case_when(!is.na(Fanzor) ~ "Yes", .default = "No"),
+    .after = Fanzor
+  )
 # Filter for only Fanzor orthologs in Magallana gigas
 ortho_fz <- ortho_long %>%
   filter(Fanzor_Ortho != "") %>%
   group_by(Orthogroup) %>%
   filter(any(Species == "Magallana gigas" & !is.na(Protein_ID))) %>%
   ungroup() %>%
-  mutate(
-    Saito_Fanzor = case_when(!is.na(Fanzor) ~ "Yes", .default = "No"),
-    .after = Fanzor
-  ) %>%
   select(!Fanzor) %>%
   filter(!is.na(Protein_ID)) %>%
   # Add protein sequence and metadata
@@ -405,6 +424,21 @@ ortho_fz <- ortho_long %>%
   mutate(n_Per_Orthogroup = n(), .by = Orthogroup) %>%
   mutate(n_Per_Species = n(), .by = c(Orthogroup, Species)) %>%
   arrange(n_Per_Orthogroup, desc(n_Per_Species)) %>%
+  # Create consensus protein product labels for each orthogroup
+  mutate(
+    Ortho_Product = collapseAnnots(Product, threshold = 0.2),
+    .by = Orthogroup,
+    .after = Product
+  )
+# Canonical Fz-containing orthogroups
+ortho_canon <- ortho_long %>%
+  group_by(Orthogroup) %>%
+  filter(!all(is.na(Fz))) %>%
+  ungroup() %>%
+  select(!Fanzor) %>%
+  filter(!is.na(Protein_ID)) %>%
+  # Add protein sequence and metadata
+  left_join(prot_df, by = join_by(Species, Protein_ID)) %>%
   # Create consensus protein product labels for each orthogroup
   mutate(
     Ortho_Product = collapseAnnots(Product, threshold = 0.2),
@@ -428,12 +462,12 @@ ortho_fz <- ortho_fz %>%
 spc_names <- unique(ortho_fz$Species)
 # Align and cluster sequences in each orthogroup
 ortho_split <- split(ortho_fz, ortho_fz$Orthogroup) # split by orthogroup
-# for (og in names(ortho_split)[1]) { # DELETE
-# for (og in names(ortho_split)[48]) { # DELETE
-# for (og in names(ortho_split)[26]) { # DELETE
+canon_split <- split(ortho_canon, ortho_canon$Orthogroup) # split by orthogroup
+# for (og in names(canon_split)) {
 for (og in names(ortho_split)) {
   print(paste("Plotting alignments of:", og))
   og_df <- ortho_split[[og]] # subset orthogroup df
+  # og_df <- canon_split[[og]] # subset orthogroup df
   prots <- og_df %>% # convert df to AAStringSet object
     pull(seq, Protein_ID) %>%
     AAStringSet()
@@ -457,6 +491,7 @@ for (og in names(ortho_split)) {
   # Add metadata to AAStringSet object
   mcols(prots)$Species <- formatSpc(og_df$Species) # formatted species name
   mcols(prots)$Product <- og_df$Product # protein product name
+  mcols(prots)$Saito_Fanzor <- og_df$Saito_Fanzor # if protein is ID'd Fanzor
   # mcols(prots)$Cluster_Product <- og_df$Cluster_Product # cluster # of ortho name
   # mcols(prots)$Tree_Cluster <- og_df$Tree_Cluster # cluster # by alignment
   
@@ -465,7 +500,7 @@ for (og in names(ortho_split)) {
     distinct(Ortho_Product) %>%
     pull(Ortho_Product)
   plot_title <- paste(og, og_prod, sep = ": ") # plot title
-  
+
   # Generate plots
   p_msatree <- plotTreeMSA(prots, aln, tree, plot_title, spc_names)
   # p_msa <- plotMSA(prots, aln, plot_title)
