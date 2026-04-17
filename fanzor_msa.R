@@ -463,10 +463,13 @@ spc_names <- unique(ortho_fz$Species)
 # Align and cluster sequences in each orthogroup
 ortho_split <- split(ortho_fz, ortho_fz$Orthogroup) # split by orthogroup
 canon_split <- split(ortho_canon, ortho_canon$Orthogroup) # split by orthogroup
+ortho_canon %>%
+  filter(Species == "Magallana gigas")
 # for (og in names(canon_split)) {
 for (og in names(ortho_split)) {
   print(paste("Plotting alignments of:", og))
-  og_df <- ortho_split[[og]] # subset orthogroup df
+  og_df <- ortho_split[["XP_044554645.1"]] # subset orthogroup df
+  # og_df <- ortho_split[[og]] # subset orthogroup df
   # og_df <- canon_split[[og]] # subset orthogroup df
   prots <- og_df %>% # convert df to AAStringSet object
     pull(seq, Protein_ID) %>%

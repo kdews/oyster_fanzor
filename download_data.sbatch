@@ -132,10 +132,7 @@ datasets --version || exit 1
 
 # Search NCBI for reference accession numbers for each species
 # Specify fields to query from NCBI
-fields_arr=(
-  accession
-  assminfo-release-date
-)
+fields_arr=("accession" "assminfo-release-date")
 fields="$(IFS=,; echo "${fields_arr[*]}")"
 # Create species table from output
 echo "Creating species table ($species_tab)..."
@@ -144,6 +141,7 @@ do
   spc="${species_list[i]}"
   if [[ "$i" -eq 0 ]]
   then
+    datasets summary genome taxon "$spc" --annotated --as-json-lines | dataformat tsv genome > test.tsv
     datasets summary genome taxon "$spc" --reference --annotated --as-json-lines \
       | dataformat tsv genome --fields "$fields" \
       > "$species_tab"
