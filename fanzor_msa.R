@@ -81,8 +81,9 @@ stripAnnots <- function(products) {
 # Filter out completely uninformative annotations
 filtAnnots <- function(products) {
   filt <- stripAnnots(products)
-  filt[!str_detect(filt,
-                       regex("^(uncharacterized|hypothetical)", ignore_case = T))]
+  filt[!str_detect(
+    filt, regex("^(uncharacterized|hypothetical)", ignore_case = T)
+  )]
 }
 # Find longest common prefix (word-boundary aware)
 lcpLabel <- function(products) {
@@ -116,7 +117,8 @@ clusterProds <- function(products, threshold = 0.2) {
     error = function(e)
       hclust(as.dist(d), method = "average")
   )
-  # cutree with 'h' fails if heights aren't strictly increasing (float precision issue)
+  # cutree with 'h' fails if heights aren't strictly increasing
+  # (float precision issue)
   # sort the merge heights as a workaround
   hc$height <- sort(hc$height)
   cutree(hc, h = threshold)
